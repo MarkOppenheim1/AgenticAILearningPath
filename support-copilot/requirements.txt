@@ -1,6 +1,0 @@
-langgraph 
-langchain 
-langchain-openai 
-langsmith 
-python-dotenv 
-faiss-cpu
