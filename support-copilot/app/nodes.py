@@ -1,11 +1,11 @@
 # app/nodes.py
 from langchain_openai import ChatOpenAI
-from retrieve import simple_retrieve
+from retrieve import retrieve_context_strings
 
 llm = ChatOpenAI(model="gpt-5-nano", temperature=0)
 
 def retrieve_context(state):
-    chunks = simple_retrieve(state["user_query"])
+    chunks = retrieve_context_strings(state["user_query"], k=4)
     return {"retrieved_chunks": chunks}
 
 def classify_request(state):

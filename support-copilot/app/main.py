@@ -1,6 +1,9 @@
 from dotenv import load_dotenv
 load_dotenv()
 
+from retrieve import get_vectorstore
+get_vectorstore()
+
 from langgraph.types import Command
 from graph import graph
 

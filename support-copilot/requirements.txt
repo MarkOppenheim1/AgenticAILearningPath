@@ -4,3 +4,6 @@ langchain-openai
 langsmith 
 python-dotenv 
 faiss-cpu
+langchain-community 
+tiktoken
+langchain-text-splitters
