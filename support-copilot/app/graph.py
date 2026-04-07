@@ -2,9 +2,9 @@
 from langgraph.graph import StateGraph, START, END
 from langgraph.checkpoint.memory import InMemorySaver
 
-from state import CopilotState
-from nodes import retrieve_context, classify_request, draft_response
-from approval import approval_gate, finalize_response
+from app.state import CopilotState
+from app.nodes import retrieve_context, classify_request, draft_response
+from app.approval import approval_gate, finalize_response
 
 builder = StateGraph(CopilotState)
 

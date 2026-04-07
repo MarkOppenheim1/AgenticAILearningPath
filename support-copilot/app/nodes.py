@@ -3,7 +3,7 @@ from typing import Literal, List
 from pydantic import BaseModel, Field
 from langchain_openai import ChatOpenAI
 
-from retrieve import retrieve_context_strings
+from app.retrieve import retrieve_context_strings
 
 
 class ClassificationResult(BaseModel):
@@ -24,7 +24,7 @@ class AnswerResult(BaseModel):
     )
 
 
-llm = ChatOpenAI(model="gpt-5-nano", temperature=0)
+llm = ChatOpenAI(model="gpt-5.4-nano", temperature=0)
 classifier_llm = llm.with_structured_output(ClassificationResult)
 answer_llm = llm.with_structured_output(AnswerResult)
 
@@ -157,10 +157,12 @@ Context:
         sources = retrieved_sources
         action = "escalate"
 
-    if request_type == "sensitive" and action == "none":
+    # Make routing deterministic from classification
+    if request_type == "safe":
+        action = "none"
+    elif request_type == "sensitive":
         action = "approve_needed"
-
-    if request_type == "requires_human":
+    else:
         action = "escalate"
 
     return {

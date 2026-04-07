@@ -6,6 +6,6 @@
 .venv/
 venv/
 
-app/__pycache__/
+*/__pycache__/
 
 data/faiss_index/
