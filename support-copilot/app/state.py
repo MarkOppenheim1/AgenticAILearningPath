@@ -10,5 +10,9 @@ class CopilotState(TypedDict, total=False):
     needs_approval: bool
     
     draft_response: str
+    answer_confidence: str
+    answer_sources: List[str]
+    recommended_action: str
+
     approval_decision: Optional[str]
     final_response: str

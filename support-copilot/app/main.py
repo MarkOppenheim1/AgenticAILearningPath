@@ -20,12 +20,20 @@ def main():
     print("request_type:", result.get("request_type"))
     print("reason:", result.get("classification_reason"))
 
+    print("\n--- ANSWER OBJECT ---")
+    print("confidence:", result.get("answer_confidence"))
+    print("sources:", result.get("answer_sources"))
+    print("recommended_action:", result.get("recommended_action"))
+
     if "__interrupt__" in result:
         payload = result["__interrupt__"][0].value
         print("\n=== HUMAN APPROVAL REQUIRED ===")
         print("Question:", payload["question"])
         print("Type:", payload.get("request_type"))
         print("Reason:", payload.get("classification_reason"))
+        print("Confidence:", payload.get("answer_confidence"))
+        print("Sources:", payload.get("answer_sources"))
+        print("Recommended action:", payload.get("recommended_action"))
         print("Draft:\n", payload["draft_response"])
 
         decision = input("\nType approved or rejected: ").strip().lower()

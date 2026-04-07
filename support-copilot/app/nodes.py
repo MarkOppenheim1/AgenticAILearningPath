@@ -1,5 +1,5 @@
 # app/nodes.py
-from typing import Literal
+from typing import Literal, List
 from pydantic import BaseModel, Field
 from langchain_openai import ChatOpenAI
 
@@ -8,12 +8,25 @@ from retrieve import retrieve_context_strings
 
 class ClassificationResult(BaseModel):
     request_type: Literal["safe", "sensitive", "requires_human"]
-    reason: str = Field(
-        description="Short explanation for the classification"
+    reason: str = Field(description="Short explanation for the classification")
+
+
+class AnswerResult(BaseModel):
+    answer: str = Field(description="Customer support answer grounded in the provided context")
+    confidence: Literal["high", "medium", "low"] = Field(
+        description="Confidence in whether the answer is well-supported by the retrieved context"
     )
+    sources: List[str] = Field(
+        description="List of source filenames used to support the answer"
+    )
+    action: Literal["none", "approve_needed", "escalate"] = Field(
+        description="Recommended next step"
+    )
+
 
 llm = ChatOpenAI(model="gpt-5-nano", temperature=0)
 classifier_llm = llm.with_structured_output(ClassificationResult)
+answer_llm = llm.with_structured_output(AnswerResult)
 
 
 def retrieve_context(state):
@@ -26,24 +39,24 @@ def classify_request(state):
     context = "\n\n".join(state.get("retrieved_chunks", []))
 
     prompt = f"""
-            You are classifying customer support requests for a support copilot.
+You are classifying customer support requests for a support copilot.
 
-            Classify into exactly one of these:
-            - safe
-            - sensitive
-            - requires_human
+Classify into exactly one of these:
+- safe
+- sensitive
+- requires_human
 
-            Classification rules:
-            - safe: straightforward FAQ or account guidance grounded in the provided context
-            - sensitive: policy, billing, refunds, compensation, cancellations with possible financial or policy impact
-            - requires_human: context is insufficient, request is high-risk, ambiguous, asks for exceptions, or should not be answered automatically
+Classification rules:
+- safe: straightforward FAQ or account guidance grounded in the provided context
+- sensitive: policy, billing, refunds, compensation, cancellations with possible financial or policy impact
+- requires_human: context is insufficient, request is high-risk, ambiguous, asks for exceptions, or should not be answered automatically
 
-            User query:
-            {query}
+User query:
+{query}
 
-            Retrieved context:
-            {context}
-            """
+Retrieved context:
+{context}
+"""
 
     try:
         parsed = classifier_llm.invoke(prompt)
@@ -52,10 +65,6 @@ def classify_request(state):
     except Exception as e:
         request_type = "requires_human"
         reason = f"Structured classifier failed: {e}"
-
-    if request_type not in {"safe", "sensitive", "requires_human"}:
-        request_type = "requires_human"
-        reason = f"Unexpected classifier label returned. Original reason: {reason}"
 
     needs_approval = request_type == "sensitive"
 
@@ -66,40 +75,97 @@ def classify_request(state):
     }
 
 
+def _extract_sources(chunks: list[str]) -> list[str]:
+    sources = []
+    for chunk in chunks:
+        if chunk.startswith("[SOURCE: "):
+            first_line = chunk.splitlines()[0]
+            source = first_line.replace("[SOURCE: ", "").replace("]", "").strip()
+            if source not in sources:
+                sources.append(source)
+    return sources
+
+
 def draft_response(state):
-    context = "\n\n".join(state.get("retrieved_chunks", []))
+    context_chunks = state.get("retrieved_chunks", [])
+    context = "\n\n".join(context_chunks)
     request_type = state.get("request_type", "requires_human")
+    retrieved_sources = _extract_sources(context_chunks)
 
     if request_type == "requires_human":
         return {
             "draft_response": (
                 "I do not have enough confidence to answer this automatically. "
                 "Please route this request to a human support reviewer."
-            )
+            ),
+            "answer_confidence": "low",
+            "answer_sources": retrieved_sources,
+            "recommended_action": "escalate",
         }
 
     if not context.strip():
         return {
             "draft_response": (
-                "I don't have enough information in the support docs "
-                "to answer that confidently."
-            )
+                "I don't have enough information in the support docs to answer that confidently."
+            ),
+            "answer_confidence": "low",
+            "answer_sources": [],
+            "recommended_action": "escalate",
         }
 
     prompt = f"""
-        You are a customer support copilot.
+You are a customer support copilot.
 
-        Rules:
-        - Answer only from the provided context.
-        - If the context is insufficient, say so clearly.
-        - Do not invent policy details.
-        - Be concise and helpful.
+Answer using only the provided context.
 
-        User question:
-        {state["user_query"]}
+Return:
+- a concise support answer
+- a confidence level
+- the supporting source filenames
+- the recommended action
 
-        Context:
-        {context}
-        """
-    result = llm.invoke(prompt)
-    return {"draft_response": result.content}
+Rules:
+- Do not invent policy details
+- If context is weak, confidence should be low
+- If the request is policy-sensitive, action should usually be approve_needed
+- If the request should not be handled automatically, action should be escalate
+- Only include sources that are actually relevant
+
+User question:
+{state["user_query"]}
+
+Request type:
+{request_type}
+
+Available sources:
+{retrieved_sources}
+
+Context:
+{context}
+"""
+
+    try:
+        parsed = answer_llm.invoke(prompt)
+
+        answer = parsed.answer.strip()
+        confidence = parsed.confidence
+        sources = parsed.sources
+        action = parsed.action
+    except Exception as e:
+        answer = f"Failed to generate structured answer: {e}"
+        confidence = "low"
+        sources = retrieved_sources
+        action = "escalate"
+
+    if request_type == "sensitive" and action == "none":
+        action = "approve_needed"
+
+    if request_type == "requires_human":
+        action = "escalate"
+
+    return {
+        "draft_response": answer,
+        "answer_confidence": confidence,
+        "answer_sources": sources,
+        "recommended_action": action,
+    }
