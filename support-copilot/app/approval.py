@@ -30,6 +30,7 @@ def finalize_response(state):
     decision = state.get("approval_decision")
     request_type = state.get("request_type")
     recommended_action = state.get("recommended_action", "escalate")
+    tool_result = state.get("tool_result")
 
     if request_type == "requires_human" or recommended_action == "escalate":
         return {
@@ -45,6 +46,16 @@ def finalize_response(state):
         answer = state["draft_response"]
         confidence = state.get("answer_confidence", "unknown")
         sources = ", ".join(state.get("answer_sources", [])) or "No sources"
+
+        if tool_result:
+            return {
+                "final_response": (
+                    f"{answer}\n\n"
+                    f"Confidence: {confidence}\n"
+                    f"Sources: {sources}\n\n"
+                    f"Action Result:\n{tool_result}"
+                )
+            }
 
         return {
             "final_response": (

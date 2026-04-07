@@ -1,4 +1,3 @@
-# app/nodes.py
 from typing import Literal, List
 from pydantic import BaseModel, Field
 from langchain_openai import ChatOpenAI
@@ -106,7 +105,8 @@ def draft_response(state):
     if not context.strip():
         return {
             "draft_response": (
-                "I don't have enough information in the support docs to answer that confidently."
+                "I don't have enough information in the support docs "
+                "to answer that confidently."
             ),
             "answer_confidence": "low",
             "answer_sources": [],
@@ -127,8 +127,6 @@ Return:
 Rules:
 - Do not invent policy details
 - If context is weak, confidence should be low
-- If the request is policy-sensitive, action should usually be approve_needed
-- If the request should not be handled automatically, action should be escalate
 - Only include sources that are actually relevant
 
 User question:
@@ -150,14 +148,11 @@ Context:
         answer = parsed.answer.strip()
         confidence = parsed.confidence
         sources = parsed.sources
-        action = parsed.action
     except Exception as e:
         answer = f"Failed to generate structured answer: {e}"
         confidence = "low"
         sources = retrieved_sources
-        action = "escalate"
 
-    # Make routing deterministic from classification
     if request_type == "safe":
         action = "none"
     elif request_type == "sensitive":
@@ -170,4 +165,65 @@ Context:
         "answer_confidence": confidence,
         "answer_sources": sources,
         "recommended_action": action,
+    }
+
+
+def select_tool(state):
+    query = state["user_query"].lower()
+    request_type = state.get("request_type", "requires_human")
+    approval_decision = state.get("approval_decision")
+    recommended_action = state.get("recommended_action", "escalate")
+
+    if request_type != "sensitive":
+        return {
+            "tool_name": None,
+            "tool_input": {},
+        }
+
+    if approval_decision != "approved":
+        return {
+            "tool_name": None,
+            "tool_input": {},
+        }
+
+    if recommended_action != "approve_needed":
+        return {
+            "tool_name": None,
+            "tool_input": {},
+        }
+
+    refund_terms = [
+        "refund",
+        "money back",
+        "chargeback",
+        "billing reversal",
+    ]
+
+    escalation_terms = [
+        "escalate",
+        "manager",
+        "supervisor",
+        "speak to a manager",
+        "speak with a manager",
+        "talk to a manager",
+        "manager review",
+        "formal complaint",
+        "complaint",
+    ]
+
+    if any(term in query for term in refund_terms):
+        return {
+            "tool_name": "create_refund_ticket",
+            "tool_input": {"user_query": state["user_query"]},
+        }
+
+    if any(term in query for term in escalation_terms):
+        return {
+            "tool_name": "create_escalation_case",
+            "tool_input": {"user_query": state["user_query"]},
+        }
+
+    return {
+        "tool_name": None,
+        "tool_input": {},
     }
