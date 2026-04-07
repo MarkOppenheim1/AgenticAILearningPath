@@ -1,11 +1,19 @@
 # app/nodes.py
-import json
-import re
-
+from typing import Literal
+from pydantic import BaseModel, Field
 from langchain_openai import ChatOpenAI
+
 from retrieve import retrieve_context_strings
 
-llm = ChatOpenAI(model="gpt-4.1-mini", temperature=0)
+
+class ClassificationResult(BaseModel):
+    request_type: Literal["safe", "sensitive", "requires_human"]
+    reason: str = Field(
+        description="Short explanation for the classification"
+    )
+
+llm = ChatOpenAI(model="gpt-5-nano", temperature=0)
+classifier_llm = llm.with_structured_output(ClassificationResult)
 
 
 def retrieve_context(state):
@@ -13,59 +21,41 @@ def retrieve_context(state):
     return {"retrieved_chunks": chunks}
 
 
-def _parse_json_response(text: str) -> dict:
-    """Parse model output that may include markdown code fences."""
-    text = text.strip()
-
-    # Remove ```json ... ``` or ``` ... ``` fences if present
-    text = re.sub(r"^```json\s*", "", text, flags=re.IGNORECASE)
-    text = re.sub(r"^```\s*", "", text)
-    text = re.sub(r"\s*```$", "", text)
-
-    return json.loads(text)
-
-
 def classify_request(state):
     query = state["user_query"]
     context = "\n\n".join(state.get("retrieved_chunks", []))
 
     prompt = f"""
-You are classifying customer support requests for a support copilot.
+            You are classifying customer support requests for a support copilot.
 
-Return JSON only. Do not use markdown code fences.
+            Classify into exactly one of these:
+            - safe
+            - sensitive
+            - requires_human
 
-Schema:
-{{
-  "request_type": "safe" | "sensitive" | "requires_human",
-  "reason": "<short explanation>"
-}}
+            Classification rules:
+            - safe: straightforward FAQ or account guidance grounded in the provided context
+            - sensitive: policy, billing, refunds, compensation, cancellations with possible financial or policy impact
+            - requires_human: context is insufficient, request is high-risk, ambiguous, asks for exceptions, or should not be answered automatically
 
-Classification rules:
-- "safe": straightforward FAQ or account guidance grounded in the provided context
-- "sensitive": policy, billing, refunds, compensation, cancellations with possible financial or policy impact
-- "requires_human": the context is insufficient, the request is high-risk, ambiguous, asks for exceptions, or should not be answered automatically
+            User query:
+            {query}
 
-User query:
-{query}
-
-Retrieved context:
-{context}
-"""
-
-    result = llm.invoke(prompt)
-
-    # Handle both string and content object cases
-    raw_text = result.content if isinstance(result.content, str) else str(result.content)
-    print("\nDEBUG classifier raw output:")
-    print(raw_text)
+            Retrieved context:
+            {context}
+            """
 
     try:
-        parsed = _parse_json_response(raw_text)
-        request_type = parsed["request_type"]
-        reason = parsed["reason"]
+        parsed = classifier_llm.invoke(prompt)
+        request_type = parsed.request_type.strip()
+        reason = parsed.reason.strip()
     except Exception as e:
         request_type = "requires_human"
-        reason = f"Classifier returned invalid JSON. Error: {e}"
+        reason = f"Structured classifier failed: {e}"
+
+    if request_type not in {"safe", "sensitive", "requires_human"}:
+        request_type = "requires_human"
+        reason = f"Unexpected classifier label returned. Original reason: {reason}"
 
     needs_approval = request_type == "sensitive"
 
@@ -90,23 +80,26 @@ def draft_response(state):
 
     if not context.strip():
         return {
-            "draft_response": "I don't have enough information in the support docs to answer that confidently."
+            "draft_response": (
+                "I don't have enough information in the support docs "
+                "to answer that confidently."
+            )
         }
 
     prompt = f"""
-You are a customer support copilot.
+        You are a customer support copilot.
 
-Rules:
-- Answer only from the provided context.
-- If the context is insufficient, say so clearly.
-- Do not invent policy details.
-- Be concise and helpful.
+        Rules:
+        - Answer only from the provided context.
+        - If the context is insufficient, say so clearly.
+        - Do not invent policy details.
+        - Be concise and helpful.
 
-User question:
-{state['user_query']}
+        User question:
+        {state["user_query"]}
 
-Context:
-{context}
-"""
+        Context:
+        {context}
+        """
     result = llm.invoke(prompt)
     return {"draft_response": result.content}

@@ -4,6 +4,7 @@ load_dotenv()
 from langgraph.types import Command
 from graph import graph
 
+
 def main():
     thread_id = "demo-thread-1"
     question = input("User: ")
@@ -37,6 +38,7 @@ def main():
         print("\nAssistant:", resumed.get("final_response", "No final response found"))
     else:
         print("\nAssistant:", result["final_response"])
+
 
 if __name__ == "__main__":
     main()
