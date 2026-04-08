@@ -1,13 +1,15 @@
 import asyncio
+import uuid
 from dotenv import load_dotenv
 
 from agents import Agent, Runner, function_tool, SQLiteSession
 
 from tools import create_refund_ticket, create_escalation_case
-
-import uuid
+from retrieve import retrieve_support_context
 
 load_dotenv()
+
+retrieve_tool = function_tool(retrieve_support_context)
 
 refund_tool = function_tool(
     create_refund_ticket,
@@ -26,17 +28,26 @@ support_agent = Agent(
         "You are a customer support copilot.\n"
         "Be concise, professional, and practical.\n"
         "\n"
-        "Use create_refund_ticket when the user is clearly asking for a refund.\n"
-        "Use create_escalation_case when the user asks for a manager, supervisor, "
-        "escalation, complaint handling, or formal review.\n"
+        "You have access to internal support knowledge through the "
+        "retrieve_support_context tool.\n"
+        "Use that tool whenever a user asks about policy, billing, refunds, "
+        "cancellations, shipping, account management, or support procedures.\n"
         "\n"
-        "If the request is ambiguous, ask one short clarifying question.\n"
-        "Never claim a tool was run unless it actually ran."
+        "Rules:\n"
+        "- Ground support answers in retrieved support context.\n"
+        "- Mention the relevant source names when useful.\n"
+        "- If the retrieved context is insufficient, say so clearly.\n"
+        "- Use create_refund_ticket only for clear refund-related actions.\n"
+        "- Use create_escalation_case only for manager/supervisor/escalation/"
+        "formal-review requests.\n"
+        "- Never claim a tool was run unless it actually ran.\n"
+        "- If a request is ambiguous, ask one short clarifying question."
     ),
-    tools=[refund_tool, escalation_tool],
+    tools=[retrieve_tool, refund_tool, escalation_tool],
 )
 
-session = SQLiteSession(uuid.uuid4().hex, "conversations.db")
+session_id = uuid.uuid4().hex
+session = SQLiteSession(session_id, "conversations.db")
 
 
 def prompt_approval(tool_name: str, arguments: str | None) -> bool:
@@ -45,8 +56,9 @@ def prompt_approval(tool_name: str, arguments: str | None) -> bool:
 
 
 async def main() -> None:
-    print("Support Copilot (OpenAI Agents SDK + approval)")
+    print("Support Copilot (OpenAI Agents SDK + RAG + approval)")
     print("Type 'exit' to quit.\n")
+    print(f"Session ID: {session_id}\n")
 
     while True:
         user_input = input("User: ").strip()
@@ -67,11 +79,11 @@ async def main() -> None:
                     None,
                     prompt_approval,
                     interruption.name or "unknown_tool",
-                    interruption.arguments,
+                    str(interruption.arguments),
                 )
 
                 if approved:
-                    state.approve(interruption, always_approve=False)
+                    state.approve(interruption)
                 else:
                     state.reject(interruption)
 
