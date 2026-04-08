@@ -64,6 +64,7 @@ mcp_server = MCPServerStdio(
         command="python",
         args=["mcp_server.py"],
     ),
+    client_session_timeout_seconds=30,
     require_approval={
         "retrieve_support_context": "never",
         "create_refund_ticket": "always",
@@ -74,17 +75,18 @@ mcp_server = MCPServerStdio(
 faq_agent = Agent(
     name="FAQ Agent",
     model="gpt-5.4-nano",
-    handoff_description=(
-        "Handles support FAQs, policy questions, billing explanations, "
-        "account management, shipping, cancellations, and refund policy lookups."
-    ),
     instructions=(
-        "You are the FAQ specialist.\n"
-        "Use retrieve_support_context for support-policy and documentation questions.\n"
-        "Ground answers in retrieved context.\n"
-        "Be concise and practical.\n"
-        "Do not create refund or escalation actions yourself unless truly necessary.\n"
-        "If the user is mainly asking for information, answer directly."
+        "You are the FAQ specialist.\n\n"
+        "CRITICAL RULES:\n"
+        "- ALWAYS call retrieve_support_context BEFORE answering any question.\n"
+        "- You must call retrieve_support_context before producing any answer.\n"
+        "- NEVER answer from your own knowledge.\n"
+        "- ONLY answer using retrieved support documents.\n"
+        "- If retrieval does not return useful information, say you don't have enough information.\n\n"
+        "After retrieving context:\n"
+        "- Answer concisely\n"
+        "- Use the retrieved content\n"
+        "- Mention sources when relevant\n"
     ),
     mcp_servers=[mcp_server],
 )
@@ -92,9 +94,6 @@ faq_agent = Agent(
 actions_agent = Agent(
     name="Actions Agent",
     model="gpt-5.4-nano",
-    handoff_description=(
-        "Handles internal support actions such as refund requests and manager/escalation cases."
-    ),
     instructions=(
         "You are the actions specialist.\n"
         "Use retrieve_support_context when policy context is needed before acting.\n"
@@ -108,25 +107,52 @@ actions_agent = Agent(
     mcp_servers=[mcp_server],
 )
 
-triage_agent = Agent(
-    name="Triage Agent",
+faq_tool = faq_agent.as_tool(
+    tool_name="answer_support_question",
+    tool_description=(
+        "Answer support FAQs and policy questions using support documentation."
+    ),
+)
+
+actions_tool = actions_agent.as_tool(
+    tool_name="handle_support_action",
+    tool_description=(
+        "Handle action-oriented support requests like refunds, manager requests, "
+        "complaints, disputes, and escalations."
+    ),
+)
+
+orchestrator_agent = Agent(
+    name="Support Orchestrator",
     model="gpt-5.4-nano",
     instructions=(
-        "You are the triage agent.\n"
-        "Route the user to the best specialist.\n"
-        "\n"
-        "Send informational or policy questions to FAQ Agent.\n"
-        "Send action-oriented requests like refunds, manager requests, disputes, "
-        "or escalation requests to Actions Agent.\n"
-        "\n"
-        "Only answer directly if the request is trivial and does not require a specialist."
+        "You are the support orchestrator.\n\n"
+        "IMPORTANT:\n"
+        "- All FAQ/policy questions MUST go through answer_support_question.\n"
+        "- Do NOT answer policy questions yourself.\n"
+        "- The FAQ agent is responsible for retrieval.\n\n"
+        "Routing:\n"
+        "- Use answer_support_question for informational/policy questions\n"
+        "- Use handle_support_action for refunds, escalation, disputes\n"
     ),
-    handoffs=[faq_agent, actions_agent],
+    tools=[faq_tool, actions_tool],
 )
+
+def debug_run_result(result) -> None:
+    print("\n=== DEBUG ===")
+    print("Last agent:", getattr(result.last_agent, "name", result.last_agent))
+    print("Final output:", result.final_output)
+    print("Interruptions:", len(getattr(result, "interruptions", []) or []))
+
+    print("\nNew items:")
+    for idx, item in enumerate(result.new_items, start=1):
+        print(f"{idx}. {type(item).__name__}")
+        print(item)
+        print()
 
 
 async def main() -> None:
-    print("Support Copilot (OpenAI Agents SDK + MCP + handoffs)")
+    print("Support Copilot (OpenAI Agents SDK + MCP + agents as tools)")
     print(f"Session ID: {session_id}")
     print("Type 'exit' to quit.\n")
 
@@ -137,7 +163,7 @@ async def main() -> None:
                 break
 
             result = await Runner.run(
-                triage_agent,
+                orchestrator_agent,
                 user_input,
                 session=session,
             )
@@ -166,12 +192,13 @@ async def main() -> None:
                             state.reject(interruption)
 
                 result = await Runner.run(
-                    triage_agent,
+                    orchestrator_agent,
                     state,
                     session=session,
                 )
 
             print(f"\nAssistant: {result.final_output}\n")
+            #debug_run_result(result)
 
 
 if __name__ == "__main__":
