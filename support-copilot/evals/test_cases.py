@@ -7,6 +7,7 @@ TEST_CASES = [
         "expected_request_type": "safe",
         "expected_action": "none",
         "expected_sources": ["account_management.md"],
+        "expected_tool_name": "None",
     },
     {
         "name": "annual refund within policy window",
@@ -14,13 +15,15 @@ TEST_CASES = [
         "expected_request_type": "sensitive",
         "expected_action": "approve_needed",
         "expected_sources": ["refund_policy.md"],
+        "expected_tool_name": "None",
     },
     {
-        "name": "cancellation plus refund",
-        "input": "Cancel my account and refund me.",
+        "name": "refund request tool call",
+        "input": "I would like a refund please.",
         "expected_request_type": "sensitive",
         "expected_action": "approve_needed",
         "expected_sources": ["cancellation_policy.md", "refund_policy.md"],
+        "expected_tool_name": "create_refund_ticket",
     },
     {
         "name": "shipment compensation request",
@@ -28,6 +31,7 @@ TEST_CASES = [
         "expected_request_type": "sensitive",
         "expected_action": "approve_needed",
         "expected_sources": ["shipping_faq.md"],
+        "expected_tool_name": "None",
     },
     {
         "name": "refund exception request",
@@ -35,6 +39,7 @@ TEST_CASES = [
         "expected_request_type": "requires_human",
         "expected_action": "escalate",
         "expected_sources": ["refund_policy.md"],
+        "expected_tool_name": "None",
     },
     {
         "name": "paypal support",
@@ -42,5 +47,14 @@ TEST_CASES = [
         "expected_request_type": "safe",
         "expected_action": "none",
         "expected_sources": ["billing_faq.md"],
+        "expected_tool_name": "None",
+    },
+    {
+        "name": "manager invoice escalation",
+        "input": "I'd like to speak to a manager about my invoice",
+        "expected_request_type": "sensitive",
+        "expected_action": "approve_needed",
+        "expected_sources": ["billing_faq.md"],
+        "expected_tool_name": "create_escalation_case",
     },
 ]

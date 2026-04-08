@@ -22,10 +22,15 @@ class AnswerResult(BaseModel):
         description="Recommended next step"
     )
 
+class ToolSelectionResult(BaseModel):
+    tool_name: Literal["none", "create_refund_ticket", "create_escalation_case"]
+    reason: str = Field(description="Short explanation for the selected tool")
+
 
 llm = ChatOpenAI(model="gpt-5.4-nano", temperature=0)
 classifier_llm = llm.with_structured_output(ClassificationResult)
 answer_llm = llm.with_structured_output(AnswerResult)
+tool_selector_llm = llm.with_structured_output(ToolSelectionResult)
 
 
 def retrieve_context(state):
@@ -169,10 +174,12 @@ Context:
 
 
 def select_tool(state):
-    query = state["user_query"].lower()
+    query = state["user_query"]
     request_type = state.get("request_type", "requires_human")
     approval_decision = state.get("approval_decision")
     recommended_action = state.get("recommended_action", "escalate")
+    classification_reason = state.get("classification_reason", "")
+    draft_response = state.get("draft_response", "")
 
     if request_type != "sensitive":
         return {
@@ -192,32 +199,49 @@ def select_tool(state):
             "tool_input": {},
         }
 
-    refund_terms = [
-        "refund",
-        "money back",
-        "chargeback",
-        "billing reversal",
-    ]
+    prompt = f"""
+You are selecting the best internal support tool.
 
-    escalation_terms = [
-        "escalate",
-        "manager",
-        "supervisor",
-        "speak to a manager",
-        "speak with a manager",
-        "talk to a manager",
-        "manager review",
-        "formal complaint",
-        "complaint",
-    ]
+Available tools:
+- none: do not run any tool
+- create_refund_ticket: use for approved refund-related requests
+- create_escalation_case: use for approved manager/supervisor/escalation requests, billing disputes, or formal review requests
 
-    if any(term in query for term in refund_terms):
+Rules:
+- Choose exactly one tool
+- Refund requests should usually use create_refund_ticket
+- Requests for manager review, supervisor review, complaint handling, or escalation should usually use create_escalation_case
+- If no internal action is needed, choose none
+
+User query:
+{query}
+
+Request type:
+{request_type}
+
+Recommended action:
+{recommended_action}
+
+Classification reason:
+{classification_reason}
+
+Draft response:
+{draft_response}
+"""
+
+    try:
+        parsed = tool_selector_llm.invoke(prompt)
+        selected_tool = parsed.tool_name
+    except Exception:
+        selected_tool = "none"
+
+    if selected_tool == "create_refund_ticket":
         return {
             "tool_name": "create_refund_ticket",
             "tool_input": {"user_query": state["user_query"]},
         }
 
-    if any(term in query for term in escalation_terms):
+    if selected_tool == "create_escalation_case":
         return {
             "tool_name": "create_escalation_case",
             "tool_input": {"user_query": state["user_query"]},

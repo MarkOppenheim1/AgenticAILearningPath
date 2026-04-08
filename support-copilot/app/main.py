@@ -45,6 +45,7 @@ def main():
 
         print("\n--- TOOL ---")
         print("tool_name:", resumed.get("tool_name"))
+        print("tool_input:", resumed.get("tool_input"))
         print("tool_result:", resumed.get("tool_result"))
 
         print("\nAssistant:", resumed.get("final_response", "No final response found"))

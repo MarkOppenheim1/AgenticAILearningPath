@@ -16,18 +16,21 @@ def score_case(case: dict, result: dict) -> dict:
     expected_type = case["expected_request_type"]
     expected_action = case["expected_action"]
     expected_sources = normalize_sources(case.get("expected_sources", []))
+    expected_tool_name = case.get("expected_tool_name")
 
     actual_type = result.get("request_type")
     actual_action = result.get("recommended_action")
     actual_sources = normalize_sources(result.get("answer_sources", []))
+    actual_tool_name = result.get("tool_name")
 
     request_type_pass = actual_type == expected_type
     action_pass = actual_action == expected_action
     source_pass = (
         True if not expected_sources else len(expected_sources.intersection(actual_sources)) > 0
     )
+    tool_pass = True if expected_tool_name is None else actual_tool_name == expected_tool_name
 
-    passed = request_type_pass and action_pass and source_pass
+    passed = request_type_pass and action_pass and source_pass and tool_pass
 
     return {
         "name": case["name"],
@@ -42,6 +45,8 @@ def score_case(case: dict, result: dict) -> dict:
         "actual_action": actual_action,
         "expected_sources": sorted(expected_sources),
         "actual_sources": sorted(actual_sources),
+        "expected_tool_name": expected_tool_name,
+        "actual_tool_name": actual_tool_name,
         "classification_reason": result.get("classification_reason"),
         "answer_confidence": result.get("answer_confidence"),
         "draft_response": result.get("draft_response"),
@@ -67,6 +72,8 @@ def print_failures(results: list[dict]) -> None:
         print(f"  actual type/action: {r['actual_request_type']} / {r['actual_action']}")
         print(f"  expected sources: {r['expected_sources']}")
         print(f"  actual sources: {r['actual_sources']}")
+        print(f"  expected tool: {r['expected_tool_name']}")
+        print(f"  actual tool: {r['actual_tool_name']}")
         print()
 
 
