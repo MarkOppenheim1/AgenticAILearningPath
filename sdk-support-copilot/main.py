@@ -71,28 +71,62 @@ mcp_server = MCPServerStdio(
     },
 )
 
-support_agent = Agent(
-    name="Support Copilot MCP",
+faq_agent = Agent(
+    name="FAQ Agent",
     model="gpt-5.4-nano",
+    handoff_description=(
+        "Handles support FAQs, policy questions, billing explanations, "
+        "account management, shipping, cancellations, and refund policy lookups."
+    ),
     instructions=(
-        "You are a customer support copilot.\n"
-        "Be concise, professional, and practical.\n\n"
-        "Use retrieve_support_context for policy, billing, refunds, cancellations, "
-        "shipping, account management, and support procedures.\n"
+        "You are the FAQ specialist.\n"
+        "Use retrieve_support_context for support-policy and documentation questions.\n"
+        "Ground answers in retrieved context.\n"
+        "Be concise and practical.\n"
+        "Do not create refund or escalation actions yourself unless truly necessary.\n"
+        "If the user is mainly asking for information, answer directly."
+    ),
+    mcp_servers=[mcp_server],
+)
+
+actions_agent = Agent(
+    name="Actions Agent",
+    model="gpt-5.4-nano",
+    handoff_description=(
+        "Handles internal support actions such as refund requests and manager/escalation cases."
+    ),
+    instructions=(
+        "You are the actions specialist.\n"
+        "Use retrieve_support_context when policy context is needed before acting.\n"
         "Use create_refund_ticket only when the user clearly wants a refund action "
-        "and enough details are available.\n"
+        "and sufficient details are available.\n"
         "Use create_escalation_case when the user asks for a manager, supervisor, "
-        "escalation, complaint handling, or formal review.\n\n"
-        "Ground policy answers in retrieved context.\n"
-        "If the request is ambiguous, ask one short clarifying question.\n"
+        "formal review, complaint handling, or escalation.\n"
+        "If key details are missing, ask one short clarifying question first.\n"
         "Never claim a tool was run unless it actually ran."
     ),
     mcp_servers=[mcp_server],
 )
 
+triage_agent = Agent(
+    name="Triage Agent",
+    model="gpt-5.4-nano",
+    instructions=(
+        "You are the triage agent.\n"
+        "Route the user to the best specialist.\n"
+        "\n"
+        "Send informational or policy questions to FAQ Agent.\n"
+        "Send action-oriented requests like refunds, manager requests, disputes, "
+        "or escalation requests to Actions Agent.\n"
+        "\n"
+        "Only answer directly if the request is trivial and does not require a specialist."
+    ),
+    handoffs=[faq_agent, actions_agent],
+)
+
 
 async def main() -> None:
-    print("Support Copilot (OpenAI Agents SDK + MCP)")
+    print("Support Copilot (OpenAI Agents SDK + MCP + handoffs)")
     print(f"Session ID: {session_id}")
     print("Type 'exit' to quit.\n")
 
@@ -103,7 +137,7 @@ async def main() -> None:
                 break
 
             result = await Runner.run(
-                support_agent,
+                triage_agent,
                 user_input,
                 session=session,
             )
@@ -132,7 +166,7 @@ async def main() -> None:
                             state.reject(interruption)
 
                 result = await Runner.run(
-                    support_agent,
+                    triage_agent,
                     state,
                     session=session,
                 )
