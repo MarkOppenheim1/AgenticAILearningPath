@@ -2,98 +2,62 @@ import asyncio
 import uuid
 from dotenv import load_dotenv
 
-from agents import Agent, Runner, function_tool, SQLiteSession
-
-from tools import create_refund_ticket, create_escalation_case
-from retrieve import retrieve_support_context
+from agents import Agent, Runner, SQLiteSession
+from agents.mcp import MCPServerStdio
 
 load_dotenv()
 
-retrieve_tool = function_tool(retrieve_support_context)
+session_id = uuid.uuid4().hex
+session = SQLiteSession(session_id, "conversations.db")
 
-refund_tool = function_tool(
-    create_refund_ticket,
-    needs_approval=True,
-)
-
-escalation_tool = function_tool(
-    create_escalation_case,
-    needs_approval=True,
+mcp_server = MCPServerStdio(
+    params={
+        "command": "python",
+        "args": ["mcp_server.py"],
+    }
 )
 
 support_agent = Agent(
-    name="Support Copilot",
+    name="Support Copilot MCP",
     model="gpt-5.4-nano",
     instructions=(
         "You are a customer support copilot.\n"
         "Be concise, professional, and practical.\n"
         "\n"
-        "You have access to internal support knowledge through the "
-        "retrieve_support_context tool.\n"
-        "Use that tool whenever a user asks about policy, billing, refunds, "
-        "cancellations, shipping, account management, or support procedures.\n"
+        "Use MCP tools when needed:\n"
+        "- Use retrieve_support_context for policy, billing, refunds, cancellations, "
+        "shipping, account management, and support procedures.\n"
+        "- Use create_refund_ticket only when the user clearly wants a refund action "
+        "and you have enough details.\n"
+        "- Use create_escalation_case when the user asks for a manager, supervisor, "
+        "escalation, complaint handling, or formal review.\n"
         "\n"
-        "Rules:\n"
-        "- Ground support answers in retrieved support context.\n"
-        "- Mention the relevant source names when useful.\n"
-        "- If the retrieved context is insufficient, say so clearly.\n"
-        "- Use create_refund_ticket only for clear refund-related actions.\n"
-        "- Use create_escalation_case only for manager/supervisor/escalation/"
-        "formal-review requests.\n"
-        "- Never claim a tool was run unless it actually ran.\n"
-        "- If a request is ambiguous, ask one short clarifying question."
+        "Ground policy answers in retrieved context.\n"
+        "If the request is ambiguous, ask one short clarifying question.\n"
+        "Never claim a tool was run unless it actually ran."
     ),
-    tools=[retrieve_tool, refund_tool, escalation_tool],
+    mcp_servers=[mcp_server],
 )
-
-session_id = uuid.uuid4().hex
-session = SQLiteSession(session_id, "conversations.db")
-
-
-def prompt_approval(tool_name: str, arguments: str | None) -> bool:
-    answer = input(f"Approve {tool_name} with {arguments}? [y/N]: ").strip().lower()
-    return answer in {"y", "yes", "approved"}
 
 
 async def main() -> None:
-    print("Support Copilot (OpenAI Agents SDK + RAG + approval)")
+    print("Support Copilot (OpenAI Agents SDK + MCP)")
+    print(f"Session ID: {session_id}")
     print("Type 'exit' to quit.\n")
-    print(f"Session ID: {session_id}\n")
 
-    while True:
-        user_input = input("User: ").strip()
-        if user_input.lower() in {"exit", "quit"}:
-            break
-
-        result = await Runner.run(
-            support_agent,
-            user_input,
-            session=session,
-        )
-
-        while result.interruptions:
-            state = result.to_state()
-
-            for interruption in result.interruptions:
-                approved = await asyncio.get_running_loop().run_in_executor(
-                    None,
-                    prompt_approval,
-                    interruption.name or "unknown_tool",
-                    str(interruption.arguments),
-                )
-
-                if approved:
-                    state.approve(interruption)
-                else:
-                    state.reject(interruption)
+    async with mcp_server:
+        while True:
+            user_input = input("User: ").strip()
+            if user_input.lower() in {"exit", "quit"}:
+                break
 
             result = await Runner.run(
                 support_agent,
-                state,
+                user_input,
                 session=session,
             )
 
-        print(f"\nAssistant: {result.final_output}\n")
+            print(f"\nAssistant: {result.final_output}\n")
 
 
 if __name__ == "__main__":
