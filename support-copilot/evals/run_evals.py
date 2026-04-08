@@ -4,6 +4,8 @@ from __future__ import annotations
 from dotenv import load_dotenv
 load_dotenv()
 
+from langgraph.types import Command
+
 from app.graph import graph
 from evals.test_cases import TEST_CASES
 
@@ -28,7 +30,7 @@ def score_case(case: dict, result: dict) -> dict:
     source_pass = (
         True if not expected_sources else len(expected_sources.intersection(actual_sources)) > 0
     )
-    tool_pass = True if expected_tool_name is None else actual_tool_name == expected_tool_name
+    tool_pass = actual_tool_name == expected_tool_name
 
     passed = request_type_pass and action_pass and source_pass and tool_pass
 
@@ -39,6 +41,7 @@ def score_case(case: dict, result: dict) -> dict:
         "request_type_pass": request_type_pass,
         "action_pass": action_pass,
         "source_pass": source_pass,
+        "tool_pass": tool_pass,
         "expected_request_type": expected_type,
         "actual_request_type": actual_type,
         "expected_action": expected_action,
@@ -50,30 +53,58 @@ def score_case(case: dict, result: dict) -> dict:
         "classification_reason": result.get("classification_reason"),
         "answer_confidence": result.get("answer_confidence"),
         "draft_response": result.get("draft_response"),
+        "tool_result": result.get("tool_result"),
+        "final_response": result.get("final_response"),
     }
 
 
 def run_case(case: dict, idx: int) -> dict:
     config = {"configurable": {"thread_id": f"eval-case-{idx}"}}
-    result = graph.invoke(
+
+    initial = graph.invoke(
         {"user_query": case["input"]},
         config=config,
     )
+
+    if "__interrupt__" in initial:
+        result = graph.invoke(
+            Command(resume="approved"),
+            config=config,
+        )
+    else:
+        result = initial
+
     return score_case(case, result)
+
 
 def print_failures(results: list[dict]) -> None:
     print("\n=== FAILURES ONLY ===")
     for r in results:
         if r["passed"]:
             continue
+
         print(f"- {r['name']}")
         print(f"  input: {r['input']}")
-        print(f"  expected type/action: {r['expected_request_type']} / {r['expected_action']}")
-        print(f"  actual type/action: {r['actual_request_type']} / {r['actual_action']}")
-        print(f"  expected sources: {r['expected_sources']}")
-        print(f"  actual sources: {r['actual_sources']}")
-        print(f"  expected tool: {r['expected_tool_name']}")
-        print(f"  actual tool: {r['actual_tool_name']}")
+        print(
+            f"  request_type: expected={r['expected_request_type']} actual={r['actual_request_type']} "
+            f"({'OK' if r['request_type_pass'] else 'BAD'})"
+        )
+        print(
+            f"  action: expected={r['expected_action']} actual={r['actual_action']} "
+            f"({'OK' if r['action_pass'] else 'BAD'})"
+        )
+        print(
+            f"  sources: expected={r['expected_sources']} actual={r['actual_sources']} "
+            f"({'OK' if r['source_pass'] else 'BAD'})"
+        )
+        print(
+            f"  tool: expected={r['expected_tool_name']} actual={r['actual_tool_name']} "
+            f"({'OK' if r['tool_pass'] else 'BAD'})"
+        )
+        print(f"  confidence: {r['answer_confidence']}")
+        print(f"  reason: {r['classification_reason']}")
+        print(f"  answer: {r['draft_response']}")
+        print(f"  tool_result: {r['tool_result']}")
         print()
 
 
@@ -91,27 +122,6 @@ def main():
     print(f"Passed {passed}/{total}")
     print()
 
-    """ for r in results:
-        status = "PASS" if r["passed"] else "FAIL"
-        print(f"[{status}] {r['name']}")
-        print(f"  input: {r['input']}")
-        print(
-            f"  request_type: expected={r['expected_request_type']} actual={r['actual_request_type']} "
-            f"({'OK' if r['request_type_pass'] else 'BAD'})"
-        )
-        print(
-            f"  action: expected={r['expected_action']} actual={r['actual_action']} "
-            f"({'OK' if r['action_pass'] else 'BAD'})"
-        )
-        print(
-            f"  sources: expected={r['expected_sources']} actual={r['actual_sources']} "
-            f"({'OK' if r['source_pass'] else 'BAD'})"
-        )
-        print(f"  confidence: {r['answer_confidence']}")
-        print(f"  reason: {r['classification_reason']}")
-        print(f"  answer: {r['draft_response']}")
-        print() """
-    
     print_failures(results)
 
     print("=== SUMMARY ===")

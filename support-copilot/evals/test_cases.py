@@ -7,7 +7,7 @@ TEST_CASES = [
         "expected_request_type": "safe",
         "expected_action": "none",
         "expected_sources": ["account_management.md"],
-        "expected_tool_name": "None",
+        "expected_tool_name": None,
     },
     {
         "name": "annual refund within policy window",
@@ -15,7 +15,7 @@ TEST_CASES = [
         "expected_request_type": "sensitive",
         "expected_action": "approve_needed",
         "expected_sources": ["refund_policy.md"],
-        "expected_tool_name": "None",
+        "expected_tool_name": "create_refund_ticket",
     },
     {
         "name": "refund request tool call",
@@ -31,7 +31,7 @@ TEST_CASES = [
         "expected_request_type": "sensitive",
         "expected_action": "approve_needed",
         "expected_sources": ["shipping_faq.md"],
-        "expected_tool_name": "None",
+        "expected_tool_name": None,
     },
     {
         "name": "refund exception request",
@@ -39,7 +39,7 @@ TEST_CASES = [
         "expected_request_type": "requires_human",
         "expected_action": "escalate",
         "expected_sources": ["refund_policy.md"],
-        "expected_tool_name": "None",
+        "expected_tool_name": None,
     },
     {
         "name": "paypal support",
@@ -47,7 +47,7 @@ TEST_CASES = [
         "expected_request_type": "safe",
         "expected_action": "none",
         "expected_sources": ["billing_faq.md"],
-        "expected_tool_name": "None",
+        "expected_tool_name": None,
     },
     {
         "name": "manager invoice escalation",
