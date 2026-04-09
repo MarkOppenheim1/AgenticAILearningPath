@@ -1,0 +1,12 @@
+# Ignore environment variables
+.env
+.env.*
+
+# Ignore Python virtual environments
+.venv/
+venv/
+
+__pycache__/
+*.db*
+
+data/faiss_index/
