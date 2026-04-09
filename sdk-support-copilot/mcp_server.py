@@ -130,4 +130,5 @@ def create_escalation_case(user_query: str) -> str:
 
 
 if __name__ == "__main__":
+    get_vectorstore()
     mcp.run()
