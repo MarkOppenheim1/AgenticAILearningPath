@@ -5,19 +5,16 @@ from datetime import datetime
 from dotenv import load_dotenv
 
 from agents import Agent, Runner, SQLiteSession
-from agents.mcp import MCPServerStdio, MCPServerStdioParams
+from agents.mcp import MCPServerStreamableHttp, MCPServerStreamableHttpParams
 
 load_dotenv()
-
 
 def looks_like_business_hours() -> bool:
     now = datetime.now()
     return now.weekday() < 5 and 9 <= now.hour < 17
 
-
 def has_invoice_id(text: str) -> bool:
     return bool(re.search(r"\bINV[-_]?\d+\b", text, flags=re.IGNORECASE))
-
 
 def has_email(text: str) -> bool:
     return bool(
@@ -27,7 +24,6 @@ def has_email(text: str) -> bool:
             flags=re.IGNORECASE,
         )
     )
-
 
 def auto_approve(interruption) -> bool:
     tool_name = interruption.name or ""
@@ -50,21 +46,17 @@ def auto_approve(interruption) -> bool:
 
     return False
 
-
 def prompt_approval(tool_name: str, arguments: str | None) -> bool:
     answer = input(f"Approve {tool_name} with {arguments}? [y/N]: ").strip().lower()
     return answer in {"y", "yes", "approved"}
 
-
 session_id = uuid.uuid4().hex
 session = SQLiteSession(session_id, "conversations.db")
 
-mcp_server = MCPServerStdio(
-    params=MCPServerStdioParams(
-        command="python",
-        args=["mcp_server.py"],
+mcp_server = MCPServerStreamableHttp(
+    params=MCPServerStreamableHttpParams(
+        url="http://127.0.0.1:8000/mcp",
     ),
-    client_session_timeout_seconds=30,
     require_approval={
         "retrieve_support_context": "never",
         "create_refund_ticket": "always",
@@ -76,17 +68,10 @@ faq_agent = Agent(
     name="FAQ Agent",
     model="gpt-5.4-nano",
     instructions=(
-        "You are the FAQ specialist.\n\n"
-        "CRITICAL RULES:\n"
-        "- ALWAYS call retrieve_support_context BEFORE answering any question.\n"
-        "- You must call retrieve_support_context before producing any answer.\n"
-        "- NEVER answer from your own knowledge.\n"
-        "- ONLY answer using retrieved support documents.\n"
-        "- If retrieval does not return useful information, say you don't have enough information.\n\n"
-        "After retrieving context:\n"
-        "- Answer concisely\n"
-        "- Use the retrieved content\n"
-        "- Mention sources when relevant\n"
+        "You are the FAQ specialist. "
+        "You MUST call retrieve_support_context before answering. "
+        "Never answer from your own knowledge. "
+        "Only answer from retrieved support documentation."
     ),
     mcp_servers=[mcp_server],
 )
@@ -95,64 +80,38 @@ actions_agent = Agent(
     name="Actions Agent",
     model="gpt-5.4-nano",
     instructions=(
-        "You are the actions specialist.\n"
-        "Use retrieve_support_context when policy context is needed before acting.\n"
-        "Use create_refund_ticket only when the user clearly wants a refund action "
-        "and sufficient details are available.\n"
-        "Use create_escalation_case when the user asks for a manager, supervisor, "
-        "formal review, complaint handling, or escalation.\n"
-        "If key details are missing, ask one short clarifying question first.\n"
-        "Never claim a tool was run unless it actually ran."
+        "You are the actions specialist. "
+        "Use retrieve_support_context when policy context is needed before acting. "
+        "Use create_refund_ticket only for clear refund actions with enough details. "
+        "Use create_escalation_case for manager, supervisor, complaint, or escalation requests."
     ),
     mcp_servers=[mcp_server],
 )
 
 faq_tool = faq_agent.as_tool(
     tool_name="answer_support_question",
-    tool_description=(
-        "Answer support FAQs and policy questions using support documentation."
-    ),
+    tool_description="Answer support FAQs and policy questions using support documentation.",
 )
 
 actions_tool = actions_agent.as_tool(
     tool_name="handle_support_action",
-    tool_description=(
-        "Handle action-oriented support requests like refunds, manager requests, "
-        "complaints, disputes, and escalations."
-    ),
+    tool_description="Handle action-oriented support requests like refunds, disputes, complaints, and escalations.",
 )
 
 orchestrator_agent = Agent(
     name="Support Orchestrator",
     model="gpt-5.4-nano",
     instructions=(
-        "You are the support orchestrator.\n\n"
-        "IMPORTANT:\n"
-        "- All FAQ/policy questions MUST go through answer_support_question.\n"
-        "- Do NOT answer policy questions yourself.\n"
-        "- The FAQ agent is responsible for retrieval.\n\n"
-        "Routing:\n"
-        "- Use answer_support_question for informational/policy questions\n"
-        "- Use handle_support_action for refunds, escalation, disputes\n"
+        "You are the support orchestrator. "
+        "All FAQ and policy questions MUST go through answer_support_question. "
+        "All action-oriented requests MUST go through handle_support_action. "
+        "Do not answer policy questions yourself."
     ),
     tools=[faq_tool, actions_tool],
 )
 
-def debug_run_result(result) -> None:
-    print("\n=== DEBUG ===")
-    print("Last agent:", getattr(result.last_agent, "name", result.last_agent))
-    print("Final output:", result.final_output)
-    print("Interruptions:", len(getattr(result, "interruptions", []) or []))
-
-    print("\nNew items:")
-    for idx, item in enumerate(result.new_items, start=1):
-        print(f"{idx}. {type(item).__name__}")
-        print(item)
-        print()
-
-
 async def main() -> None:
-    print("Support Copilot (OpenAI Agents SDK + MCP + agents as tools)")
+    print("Support Copilot (OpenAI Agents SDK + MCP over HTTP)")
     print(f"Session ID: {session_id}")
     print("Type 'exit' to quit.\n")
 
@@ -185,7 +144,6 @@ async def main() -> None:
                             tool_name,
                             tool_args,
                         )
-
                         if approved:
                             state.approve(interruption)
                         else:
@@ -198,8 +156,6 @@ async def main() -> None:
                 )
 
             print(f"\nAssistant: {result.final_output}\n")
-            #debug_run_result(result)
-
 
 if __name__ == "__main__":
     asyncio.run(main())

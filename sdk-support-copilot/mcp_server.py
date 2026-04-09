@@ -7,6 +7,9 @@ from datetime import datetime, UTC
 from pathlib import Path
 import uuid
 
+from starlette.applications import Starlette
+from starlette.routing import Mount
+
 from mcp.server.fastmcp import FastMCP
 
 from langchain_core.documents import Document
@@ -14,6 +17,7 @@ from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_openai import OpenAIEmbeddings
 from langchain_community.vectorstores import FAISS
 
+# Mount at root of wherever the ASGI app mounts it
 mcp = FastMCP("support-copilot-mcp")
 
 DOCS_DIR = Path("data/docs")
@@ -103,10 +107,8 @@ def retrieve_support_context(query: str, k: int = 4) -> str:
 
 @mcp.tool()
 def create_refund_ticket(user_query: str) -> str:
-    """Create a simulated refund ticket."""
     ticket_id = f"refund-{uuid.uuid4().hex[:8]}"
     created_at = datetime.now(UTC).isoformat(timespec="seconds")
-
     return (
         f"Refund ticket created successfully.\n"
         f"Ticket ID: {ticket_id}\n"
@@ -117,10 +119,8 @@ def create_refund_ticket(user_query: str) -> str:
 
 @mcp.tool()
 def create_escalation_case(user_query: str) -> str:
-    """Create a simulated escalation case."""
     case_id = f"esc-{uuid.uuid4().hex[:8]}"
     created_at = datetime.now(UTC).isoformat(timespec="seconds")
-
     return (
         f"Escalation case created successfully.\n"
         f"Case ID: {case_id}\n"
@@ -128,7 +128,6 @@ def create_escalation_case(user_query: str) -> str:
         f"Summary: {user_query}"
     )
 
-
 if __name__ == "__main__":
-    get_vectorstore()
-    mcp.run()
+    get_vectorstore()  # optional warmup
+    mcp.run(transport="streamable-http")
